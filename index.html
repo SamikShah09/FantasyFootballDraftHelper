@@ -1,0 +1,1738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fantasy Football Draft Helper</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #0f172a;
+            color: #f8fafc;
+        }
+
+        header {
+            padding: 20px;
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #94a3b8;
+            margin-bottom: 15px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            border: none;
+            border-radius: 7px;
+            padding: 10px 15px;
+            font-weight: bold;
+            cursor: pointer;
+            background: #3b82f6;
+            color: white;
+        }
+
+        button:hover {
+            opacity: 0.85;
+        }
+
+        .reset {
+            background: #ef4444;
+        }
+
+        .drafted-count {
+            background: #334155;
+            padding: 10px 15px;
+            border-radius: 7px;
+            font-weight: bold;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 25px auto;
+            padding: 0 20px;
+        }
+
+        .rankings {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+        .ranking-column {
+            background: #1e293b;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid #334155;
+        }
+
+        .column-header {
+            padding: 15px;
+            background: #334155;
+            font-size: 20px;
+            font-weight: bold;
+            position: sticky;
+            top: 101px;
+            z-index: 10;
+        }
+
+        .my-header {
+            background: #166534;
+        }
+
+        .player {
+            display: grid;
+            grid-template-columns: 45px 1fr;
+            align-items: center;
+            min-height: 48px;
+            padding: 7px 12px;
+            border-bottom: 1px solid #334155;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .player:hover {
+            background: #334155;
+        }
+
+        .rank {
+            color: #94a3b8;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .name {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        /*
+            Players selected/drafted are crossed out.
+        */
+        .player.drafted {
+            opacity: 0.35;
+            text-decoration: line-through;
+            background: #111827;
+        }
+
+        .player.drafted .rank {
+            text-decoration: line-through;
+        }
+
+        /*
+            Only My Rank players can actually be clicked.
+        */
+        .ranking-column:not(.my-ranking) .player {
+            cursor: default;
+        }
+
+        .ranking-column:not(.my-ranking) .player:hover {
+            background: transparent;
+        }
+
+        .search-container {
+            margin-bottom: 20px;
+        }
+
+        #search {
+            width: 100%;
+            padding: 13px;
+            border-radius: 8px;
+            border: 1px solid #475569;
+            background: #1e293b;
+            color: white;
+            font-size: 16px;
+        }
+
+        #search::placeholder {
+            color: #94a3b8;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @media (max-width: 900px) {
+            .rankings {
+                grid-template-columns: 1fr;
+            }
+
+            .column-header {
+                position: static;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h1>🏈 Fantasy Football Draft Helper</h1>
+    <div class="subtitle">
+        Click a player in <strong>My Rank</strong> when they get drafted.
+        They'll automatically be crossed out on all rankings.
+    </div>
+
+    <div class="controls">
+        <button class="reset" onclick="resetDraft()">Reset Draft</button>
+
+        <div class="drafted-count">
+            Drafted: <span id="draftedCount">0</span>
+        </div>
+    </div>
+</header>
+
+
+<div class="container">
+
+    <div class="search-container">
+        <input
+            type="text"
+            id="search"
+            placeholder="Search for a player..."
+            oninput="searchPlayers()"
+        >
+    </div>
+
+    <div class="rankings">
+
+        <!-- MY RANK -->
+        <div class="ranking-column my-ranking">
+            <div class="column-header my-header">
+                ⭐ My Rank
+            </div>
+
+            <div id="myRank"></div>
+        </div>
+
+
+        <!-- DURACELL -->
+        <div class="ranking-column">
+            <div class="column-header">
+                🔋 Duracell
+            </div>
+
+            <div id="duracell"></div>
+        </div>
+
+
+        <!-- NFFC -->
+        <div class="ranking-column">
+            <div class="column-header">
+                📊 NFFC
+            </div>
+
+            <div id="nffc"></div>
+        </div>
+
+    </div>
+</div>
+
+
+<script>
+
+/*
+===========================================================
+PLAYER DATABASE
+===========================================================
+
+Every player has a canonical ID.
+
+Example:
+
+My Rank:
+    JSN
+
+Duracell:
+    Jaxon Smith-Njigba
+
+NFFC:
+    Jaxon Smith-Njigba
+
+All three use:
+
+    jaxon_smith_njigba
+
+Therefore clicking JSN crosses out all three.
+===========================================================
+*/
+
+
+const players = {
+
+    jahmyr_gibbs: {
+        my: "Gibbs",
+        duracell: "Jahmyr Gibbs",
+        nffc: "Jahmyr Gibbs"
+    },
+
+    bijan_robinson: {
+        my: "Bijan",
+        duracell: "Bijan Robinson",
+        nffc: "Bijan Robinson"
+    },
+
+    jamarr_chase: {
+        my: "Chase",
+        duracell: "Ja'Marr Chase",
+        nffc: "Ja'Marr Chase"
+    },
+
+    puka_nacua: {
+        my: "Puka",
+        duracell: "Puka Nacua",
+        nffc: "Puka Nacua"
+    },
+
+    jaxon_smith_njigba: {
+        my: "JSN",
+        duracell: "Jaxon Smith-Njigba",
+        nffc: "Jaxon Smith-Njigba"
+    },
+
+    amon_ra_st_brown: {
+        my: "Amon",
+        duracell: "Amon-Ra St. Brown",
+        nffc: "Amon-Ra St. Brown"
+    },
+
+    christian_mccaffrey: {
+        my: "CMC",
+        duracell: "Christian McCaffrey",
+        nffc: "Christian McCaffrey"
+    },
+
+    jonathan_taylor: {
+        my: "Taylor",
+        duracell: "Jonathan Taylor",
+        nffc: "Jonathan Taylor"
+    },
+
+    james_cook: {
+        my: "James Cook",
+        duracell: "James Cook III",
+        nffc: "James Cook III"
+    },
+
+    justin_jefferson: {
+        my: "Jefferson",
+        duracell: "Justin Jefferson",
+        nffc: "Justin Jefferson"
+    },
+
+    ceedee_lamb: {
+        my: "Lamb",
+        duracell: "CeeDee Lamb",
+        nffc: "CeeDee Lamb"
+    },
+
+    chase_brown: {
+        my: "Chase Brown",
+        duracell: "Chase Brown",
+        nffc: "Chase Brown"
+    },
+
+    omarion_hampton: {
+        my: "Hampton",
+        duracell: "Omarion Hampton",
+        nffc: "Omarion Hampton"
+    },
+
+    saquon_barkley: {
+        my: "Saquon",
+        duracell: "Saquon Barkley",
+        nffc: "Saquon Barkley"
+    },
+
+    kenneth_walker: {
+        my: "K9",
+        duracell: "Kenneth Walker III",
+        nffc: "Kenneth Walker III"
+    },
+
+    ashton_jeanty: {
+        my: "Jeanty",
+        duracell: "Ashton Jeanty",
+        nffc: "Ashton Jeanty"
+    },
+
+    aj_brown: {
+        my: "AJ Brown",
+        duracell: "A.J. Brown",
+        nffc: "A.J. Brown"
+    },
+
+    devon_achane: {
+        my: "Achane",
+        duracell: "De'Von Achane",
+        nffc: "De'Von Achane"
+    },
+
+    drake_london: {
+        my: "London",
+        duracell: "Drake London",
+        nffc: "Drake London"
+    },
+
+    brock_bowers: {
+        my: "Bowers",
+        duracell: "Brock Bowers",
+        nffc: "Brock Bowers"
+    },
+
+    chris_olave: {
+        my: "Olave",
+        duracell: "Chris Olave",
+        nffc: "Chris Olave"
+    },
+
+    nico_collins: {
+        my: "Nico",
+        duracell: "Nico Collins",
+        nffc: "Nico Collins"
+    },
+
+    derrick_henry: {
+        my: "Henry",
+        duracell: "Derrick Henry",
+        nffc: "Derrick Henry"
+    },
+
+    malik_nabers: {
+        my: "Nabers",
+        duracell: "Malik Nabers",
+        nffc: "Malik Nabers"
+    },
+
+    george_pickens: {
+        my: "Pickens",
+        duracell: "George Pickens",
+        nffc: "George Pickens"
+    },
+
+    josh_allen: {
+        my: "Josh Allen",
+        duracell: "Josh Allen",
+        nffc: "Josh Allen"
+    },
+
+    trey_mcbride: {
+        my: "McBride",
+        duracell: "Trey McBride",
+        nffc: "Trey McBride"
+    },
+
+    devonta_smith: {
+        my: "Devontae Smith",
+        duracell: "DeVonta Smith",
+        nffc: "DeVonta Smith"
+    },
+
+    zay_flowers: {
+        my: "Zay Flowers",
+        duracell: "Zay Flowers",
+        nffc: "Zay Flowers"
+    },
+
+    tee_higgins: {
+        my: "Tee",
+        duracell: "Tee Higgins",
+        nffc: "Tee Higgins"
+    },
+
+    kyren_williams: {
+        my: "Kyren",
+        duracell: "Kyren Williams",
+        nffc: "Kyren Williams"
+    },
+
+    garrett_wilson: {
+        my: "Garret Wilson",
+        duracell: "Garrett Wilson",
+        nffc: "Garrett Wilson"
+    },
+
+    travis_etienne: {
+        my: "Ettiene",
+        duracell: "Travis Etienne Jr.",
+        nffc: "Travis Etienne Jr."
+    },
+
+    colston_loveland: {
+        my: "Loveland",
+        duracell: "Colston Loveland",
+        nffc: "Colston Loveland"
+    },
+
+    jordan_love: {
+        my: "Love",
+        duracell: "Jordan Love",
+        nffc: "Jordan Love"
+    },
+
+    emeka_egbuka: {
+        my: "Egbuka",
+        duracell: "Emeka Egbuka",
+        nffc: "Emeka Egbuka"
+    },
+
+    ladd_mcconkey: {
+        my: "Ladd",
+        duracell: "Ladd McConkey",
+        nffc: "Ladd McConkey"
+    },
+
+    tetairoa_mcmillan: {
+        my: "Tet",
+        duracell: "Tetairoa McMillan",
+        nffc: "Tetairoa McMillan"
+    },
+
+    rashee_rice: {
+        my: "Rice",
+        duracell: "Rashee Rice",
+        nffc: "Rashee Rice"
+    },
+
+    breece_hall: {
+        my: "Breece Hall",
+        duracell: "Breece Hall",
+        nffc: "Breece Hall"
+    },
+
+    jaylen_waddle: {
+        my: "Waddle",
+        duracell: "Jaylen Waddle",
+        nffc: "Jaylen Waddle"
+    },
+
+    cam_skatt: {
+        my: "Skattebo",
+        duracell: "Cam Skattebo",
+        nffc: "Cam Skattebo"
+    },
+
+    terry_mclaurin: {
+        my: "Terry Mclaurin",
+        duracell: "Terry McLaurin",
+        nffc: "Terry McLaurin"
+    },
+
+    dandre_swift: {
+        my: "Swift",
+        duracell: "D'Andre Swift",
+        nffc: "D'Andre Swift"
+    },
+
+    dj_moore: {
+        my: "DJ Moore",
+        duracell: "DJ Moore",
+        nffc: "DJ Moore"
+    },
+
+    christian_watson: {
+        my: "Watson",
+        duracell: "Christian Watson",
+        nffc: "Christian Watson"
+    },
+
+    jameson_williams: {
+        my: "Jameson Williams",
+        duracell: "Jameson Williams",
+        nffc: "Jameson Williams"
+    },
+
+    lamar_jackson: {
+        my: "Lamar",
+        duracell: "Lamar Jackson",
+        nffc: "Lamar Jackson"
+    },
+
+    burrow: {
+        my: "Burrow",
+        duracell: "Joe Burrow",
+        nffc: "Joe Burrow"
+    },
+
+    mike_evans: {
+        my: "Mike Evan's",
+        duracell: "Mike Evans",
+        nffc: "Mike Evans"
+    },
+
+    jayden_daniels: {
+        my: "Jayden Daniel's",
+        duracell: "Jayden Daniels",
+        nffc: "Jayden Daniels"
+    },
+
+    tyler_warren: {
+        my: "Tyler Warren",
+        duracell: "Tyler Warren",
+        nffc: "Tyler Warren"
+    },
+
+    treveyon_henderson: {
+        my: "Henderson",
+        duracell: "TreVeyon Henderson",
+        nffc: "TreVeyon Henderson"
+    },
+
+    jadarian_price: {
+        my: "Price",
+        duracell: "Jadarian Price",
+        nffc: "Jadarian Price"
+    },
+
+    jaylen_warren: {
+        my: "Jaylen Warren",
+        duracell: "Jaylen Warren",
+        nffc: "Jaylen Warren"
+    },
+
+    btj: {
+        my: "BTJ",
+        duracell: "Brian Thomas Jr.",
+        nffc: "Brian Thomas Jr."
+    },
+
+    marvin_harrison: {
+        my: "Marvin Harrison",
+        duracell: "Marvin Harrison Jr.",
+        nffc: "Marvin Harrison Jr."
+    },
+
+    caleb_williams: {
+        my: "Caleb Wilson",
+        duracell: "Caleb Williams",
+        nffc: "Caleb Williams"
+    },
+
+    dk_metcalf: {
+        my: "Metcalf",
+        duracell: "DK Metcalf",
+        nffc: "DK Metcalf"
+    },
+
+    kraft: {
+        my: "Kraft",
+        duracell: "Tucker Kraft",
+        nffc: "Tucker Kraft"
+    },
+
+    justin_herbert: {
+        my: "Herbert",
+        duracell: "Justin Herbert",
+        nffc: "Justin Herbert"
+    },
+
+    alec_pierce: {
+        my: "Pierce",
+        duracell: "Alec Pierce",
+        nffc: "Alec Pierce"
+    },
+
+    courtland_sutton: {
+        my: "Sutton",
+        duracell: "Courtland Sutton",
+        nffc: "Courtland Sutton"
+    },
+
+    jalen_hurts: {
+        my: "Hurts",
+        duracell: "Jalen Hurts",
+        nffc: "Jalen Hurts"
+    },
+
+    davante_adams: {
+        my: "Davntae Adams",
+        duracell: "Davante Adams",
+        nffc: "Davante Adams"
+    },
+
+    rhamondre_stevenson: {
+        my: "Stevenson",
+        duracell: "Rhamondre Stevenson",
+        nffc: "Rhamondre Stevenson"
+    },
+
+    rj_harvey: {
+        my: "Harvey",
+        duracell: "RJ Harvey",
+        nffc: "RJ Harvey"
+    },
+
+    michael_wilson: {
+        my: "Michael Wilson",
+        duracell: "Michael Wilson",
+        nffc: "Michael Wilson"
+    },
+
+    quentin_johnston: {
+        my: "Big Q",
+        duracell: "Quentin Johnston",
+        nffc: "Quentin Johnston"
+    },
+
+    wandale_robinson: {
+        my: "Wandale",
+        duracell: "Wan'Dale Robinson",
+        nffc: "Wan'Dale Robinson"
+    },
+
+    jordan_addison: {
+        my: "Addison",
+        duracell: "Jordan Addison",
+        nffc: "Jordan Addison"
+    },
+
+    tony_pollard: {
+        my: "Pollard",
+        duracell: "Tony Pollard",
+        nffc: "Tony Pollard"
+    },
+
+    trevor_lawrence: {
+        my: "Lawrence",
+        duracell: "Trevor Lawrence",
+        nffc: "Trevor Lawrence"
+    },
+
+    patrick_mahomes: {
+        my: "Mahomes",
+        duracell: "Patrick Mahomes II",
+        nffc: "Patrick Mahomes"
+    },
+
+    michael_pittman: {
+        my: "Pittman",
+        duracell: "Michael Pittman Jr.",
+        nffc: "Michael Pittman Jr."
+    },
+
+    chris_godwin: {
+        my: "Godwin",
+        duracell: "Chris Godwin Jr.",
+        nffc: "Chris Godwin Jr."
+    },
+
+    jonathon_brooks: {
+        my: "Brooks",
+        duracell: "Jonathon Brooks",
+        nffc: "Jonathon Brooks"
+    },
+
+    george_kittle: {
+        my: "Pitts",
+        duracell: "George Kittle",
+        nffc: "George Kittle"
+    },
+
+    kenny_gainwell: {
+        my: "Gainwell",
+        duracell: "Kenny Gainwell",
+        nffc: "Kenny Gainwell"
+    },
+
+    harold_fannin: {
+        my: "Fannin",
+        duracell: "Harold Fannin Jr.",
+        nffc: "Harold Fannin Jr."
+    },
+
+    jordyn_tyson: {
+        my: "Tyson",
+        duracell: "Jordyn Tyson",
+        nffc: "Jordyn Tyson"
+    },
+
+    rico_dowdle: {
+        my: "Dowdle",
+        duracell: "Rico Dowdle",
+        nffc: "Rico Dowdle"
+    },
+
+    jaxson_dart: {
+        my: "Dart",
+        duracell: "Jaxson Dart",
+        nffc: "Jaxson Dart"
+    },
+
+    brock_purdy: {
+        my: "Purdy",
+        duracell: "Brock Purdy",
+        nffc: "Brock Purdy"
+    },
+
+    matthew_stafford: {
+        my: "Stafford",
+        duracell: "Matthew Stafford",
+        nffc: "Matthew Stafford"
+    },
+
+    dak_prescott: {
+        my: "Dak",
+        duracell: "Dak Prescott",
+        nffc: "Dak Prescott"
+    },
+
+    jk_dobbins: {
+        my: "Dobbins",
+        duracell: "JK Dobbins",
+        nffc: "J.K. Dobbins"
+    },
+
+    blake_corum: {
+        my: "Corum",
+        duracell: "Blake Corum",
+        nffc: "Blake Corum"
+    },
+
+    kyle_monangai: {
+        my: "Monangai",
+        duracell: "Kyle Monangai",
+        nffc: "Kyle Monangai"
+    },
+
+    bo_nix: {
+        my: "Nix",
+        duracell: "Bo Nix",
+        nffc: "Bo Nix"
+    },
+
+    jakobi_meyers: {
+        my: "Myers",
+        duracell: "Jakobi Meyers",
+        nffc: "Jakobi Meyers"
+    },
+
+    josh_downs: {
+        my: "Downs",
+        duracell: "Josh Downs",
+        nffc: "Josh Downs"
+    },
+
+    jordan_mason: {
+        my: "Mason",
+        duracell: "Jordan Mason",
+        nffc: "Jordan Mason"
+    },
+
+    chuba_hubbard: {
+        my: "Hubbard",
+        duracell: "Chuba Hubbard",
+        nffc: "Chuba Hubbard"
+    },
+
+    jared_goff: {
+        my: "Goff",
+        duracell: "Jared Goff",
+        nffc: "Jared Goff"
+    },
+
+    jayden_reed: {
+        my: "Jayden Reed",
+        duracell: "Jayden Reed",
+        nffc: "Jayden Reed"
+    },
+
+    makai_lemon: {
+        my: "Makai Lemon",
+        duracell: "Makai Lemon",
+        nffc: "Makai Lemon"
+    },
+
+    rachaad_white: {
+        my: "Raachad White",
+        duracell: "Rachaad White",
+        nffc: "Rachaad White"
+    }
+};
+
+
+/*
+===========================================================
+MY RANK ORDER
+===========================================================
+*/
+
+const myRankOrder = [
+    "jahmyr_gibbs",
+    "bijan_robinson",
+    "jamarr_chase",
+    "puka_nacua",
+    "jaxon_smith_njigba",
+    "amon_ra_st_brown",
+    "christian_mccaffrey",
+    "jonathan_taylor",
+    "james_cook",
+    "justin_jefferson",
+    "ceedee_lamb",
+    "chase_brown",
+    "omarion_hampton",
+    "saquon_barkley",
+    "kenneth_walker",
+    "ashton_jeanty",
+    "aj_brown",
+    "devon_achane",
+    "drake_london",
+    "brock_bowers",
+    "chris_olave",
+    "nico_collins",
+    "derrick_henry",
+    "malik_nabers",
+    "george_pickens",
+    "josh_allen",
+    "trey_mcbride",
+    "devonta_smith",
+    "zay_flowers",
+    "tee_higgins",
+    "kyren_williams",
+    "garrett_wilson",
+    "travis_etienne",
+    "colston_loveland",
+    "jordan_love",
+    "emeka_egbuka",
+    "ladd_mcconkey",
+    "tetairoa_mcmillan",
+    "rashee_rice",
+    "breece_hall",
+    "jaylen_waddle",
+    "cam_skatt",
+    "terry_mclaurin",
+    "dandre_swift",
+    "dj_moore",
+    "christian_watson",
+    "jameson_williams",
+    "lamar_jackson",
+    "burrow",
+    "mike_evans",
+    "jayden_daniels",
+    "tyler_warren",
+    "treveyon_henderson",
+    "jadarian_price",
+    "jaylen_warren",
+    "btj",
+    "marvin_harrison",
+    "caleb_williams",
+    "dk_metcalf",
+    "kraft",
+    "justin_herbert",
+    "alec_pierce",
+    "courtland_sutton",
+    "jalen_hurts",
+    "davante_adams",
+    "rhamondre_stevenson",
+    "rj_harvey",
+    "michael_wilson",
+    "quentin_johnston",
+    "wandale_robinson",
+    "jordan_addison",
+    "tony_pollard",
+    "trevor_lawrence",
+    "patrick_mahomes",
+    "michael_pittman",
+    "chris_godwin",
+    "jonathon_brooks",
+    "george_kittle",
+    "kenny_gainwell",
+    "harold_fannin",
+    "jordyn_tyson",
+    "rico_dowdle",
+    "jaxson_dart",
+    "brock_purdy",
+    "matthew_stafford",
+    "dak_prescott",
+    "jk_dobbins",
+    "blake_corum",
+    "kyle_monangai",
+    "bo_nix",
+    "jakobi_meyers",
+    "josh_downs",
+    "jordan_mason",
+    "chuba_hubbard",
+    "jared_goff",
+    "jayden_reed",
+    "makai_lemon",
+    "rachaad_white"
+];
+
+
+/*
+===========================================================
+DURACELL ORDER
+===========================================================
+*/
+
+const duracellOrder = [
+    "jahmyr_gibbs",
+    "bijan_robinson",
+    "jamarr_chase",
+    "puka_nacua",
+    "amon_ra_st_brown",
+    "christian_mccaffrey",
+    "jonathan_taylor",
+    "jaxon_smith_njigba",
+    "justin_jefferson",
+    "ceedee_lamb",
+    "james_cook",
+    "ashton_jeanty",
+    "omarion_hampton",
+    "kenneth_walker",
+    "saquon_barkley",
+    "brock_bowers",
+    "chase_brown",
+    "drake_london",
+    "devon_achane",
+    "aj_brown",
+    "malik_nabers",
+    "derrick_henry",
+    "nico_collins",
+    "chris_olave",
+    "george_pickens",
+    "trey_mcbride",
+    "jeremiyah_love",
+    "breece_hall",
+    "josh_allen",
+    "devonta_smith",
+    "rashee_rice",
+    "kyren_williams",
+    "garrett_wilson",
+    "lamar_jackson",
+    "javonte_williams",
+    "josh_jacobs",
+    "tee_higgins",
+    "zay_flowers",
+    "ladd_mcconkey",
+    "emeka_egbuka",
+    "davante_adams",
+    "colston_loveland",
+    "dandre_swift",
+    "cam_skatt",
+    "luther_burden",
+    "tetairoa_mcmillan",
+    "quinshon_judkins",
+    "travis_etienne",
+    "christian_watson",
+    "drake_maye",
+    "mike_evans",
+    "bucky_irving",
+    "david_montgomery",
+    "jaylen_waddle",
+    "parker_washington",
+    "tyler_warren",
+    "terry_mclaurin",
+    "tucker_kraft",
+    "jalen_hurts",
+    "dj_moore",
+    "jayden_daniels",
+    "carnell_tate",
+    "rome_odunze",
+    "harold_fannin",
+    "joe_burrow",
+    "bhayshul_tuten",
+    "treveyon_henderson",
+    "sam_laporta",
+    "michael_pittman",
+    "kyle_pitts",
+    "jadarian_price",
+    "jameson_williams",
+    "dk_metcalf",
+    "justin_herbert",
+    "trevor_lawrence",
+    "brock_purdy",
+    "rhamondre_stevenson",
+    "jaylen_warren",
+    "stefon_diggs",
+    "marvin_harrison",
+    "michael_wilson",
+    "jaxson_dart",
+    "alec_pierce",
+    "tony_pollard",
+    "kenny_gainwell",
+    "jk_dobbins",
+    "wandale_robinson",
+    "george_kittle",
+    "chuba_hubbard",
+    "quentin_johnston",
+    "rj_harvey",
+    "rico_dowdle",
+    "jonathon_brooks",
+    "josh_downs",
+    "makai_lemon",
+    "matthew_golden",
+    "chris_godwin",
+    "jordyn_tyson",
+    "dak_prescott",
+    "caleb_williams",
+    "xavier_worthy",
+    "jordan_addison",
+    "kc_concepcion",
+    "brian_thomas",
+    "blake_corum",
+    "tyler_shough",
+    "patrick_mahomes",
+    "kyler_murray",
+    "romeo_doubs",
+    "kyle_monangai",
+    "isaiah_likely",
+    "kenyon_sadiq",
+    "jakobi_meyers",
+    "matthew_stafford",
+    "bo_nix",
+    "jayden_reed",
+    "aaron_jones",
+    "jordan_mason",
+    "rachaad_white"
+];
+
+
+/*
+===========================================================
+NFFC ORDER
+===========================================================
+*/
+
+const nffcOrder = [
+    "jahmyr_gibbs",
+    "bijan_robinson",
+    "jamarr_chase",
+    "puka_nacua",
+    "jaxon_smith_njigba",
+    "christian_mccaffrey",
+    "amon_ra_st_brown",
+    "jonathan_taylor",
+    "james_cook",
+    "ashton_jeanty",
+    "ceedee_lamb",
+    "justin_jefferson",
+    "chase_brown",
+    "omarion_hampton",
+    "devon_achane",
+    "saquon_barkley",
+    "kenneth_walker",
+    "drake_london",
+    "aj_brown",
+    "brock_bowers",
+    "derrick_henry",
+    "george_pickens",
+    "nico_collins",
+    "trey_mcbride",
+    "chris_olave",
+    "jeremiyah_love",
+    "rashee_rice",
+    "malik_nabers",
+    "josh_allen",
+    "devonta_smith",
+    "kyren_williams",
+    "breece_hall",
+    "zay_flowers",
+    "javonte_williams",
+    "emeka_egbuka",
+    "tetairoa_mcmillan",
+    "tee_higgins",
+    "garrett_wilson",
+    "ladd_mcconkey",
+    "josh_jacobs",
+    "travis_etienne",
+    "jaylen_waddle",
+    "luther_burden",
+    "colston_loveland",
+    "cam_skatt",
+    "terry_mclaurin",
+    "jameson_williams",
+    "david_montgomery",
+    "davante_adams",
+    "dandre_swift",
+    "christian_watson",
+    "treveyon_henderson",
+    "quinshon_judkins",
+    "dj_moore",
+    "bucky_irving",
+    "mike_evans",
+    "rome_odunze",
+    "tyler_warren",
+    "joe_burrow",
+    "jalen_hurts",
+    "jayden_daniels",
+    "bhayshul_tuten",
+    "drake_maye",
+    "carnell_tate",
+    "marvin_harrison",
+    "parker_washington",
+    "jadarian_price",
+    "btj",
+    "jaylen_warren",
+    "dk_metcalf",
+    "courtland_sutton",
+    "caleb_williams",
+    "rhamondre_stevenson",
+    "tony_pollard",
+    "rj_harvey",
+    "alec_pierce",
+    "tucker_kraft",
+    "justin_herbert",
+    "michael_wilson",
+    "quentin_johnston",
+    "kyle_pitts",
+    "jordan_addison",
+    "jalen_hurts",
+    "chuba_hubbard",
+    "trevor_lawrence",
+    "harold_fannin",
+    "jordyn_tyson",
+    "dak_prescott",
+    "chris_godwin",
+    "rico_dowdle",
+    "kenny_gainwell",
+    "blake_corum",
+    "jonathon_brooks",
+    "sam_laporta",
+    "makai_lemon",
+    "wandale_robinson",
+    "josh_downs",
+    "kyle_monangai",
+    "jk_dobbins",
+    "matthew_stafford",
+    "jakobi_meyers",
+    "jayden_reed",
+    "jaxson_dart",
+    "brock_purdy",
+    "jared_goff",
+    "rachaad_white",
+    "jordan_mason",
+    "patrick_mahomes",
+    "bo_nix",
+    "george_kittle",
+    "matthew_golden",
+    "jacory_croskey_merritt",
+    "romeo_doubs",
+    "dalton_kincaid",
+    "jake_ferguson",
+    "baker_mayfield",
+    "travis_kelce",
+    "kc_concepcion",
+    "stefon_diggs",
+    "isaiah_likely",
+    "khalil_shakir",
+    "tyler_shough",
+    "kyler_murray",
+    "jalen_coker",
+    "dallas_goedert",
+    "aaron_jones",
+    "jayden_higgins",
+    "tyler_allgeier",
+    "tyrone_tracy",
+    "mark_andrews",
+    "rashid_shaheed",
+    "chris_rodriguez",
+    "woody_marks",
+    "jonah_coleman",
+    "keaton_mitchell",
+    "malik_willis",
+    "juwan_johnson",
+    "denzel_boston",
+    "zach_charbonnet",
+    "sam_darnold",
+    "deebo_samuel",
+    "brenton_strange",
+    "oronde_gadsden",
+    "jalen_mcmillan",
+    "dylan_sampson"
+];
+
+
+/*
+===========================================================
+MISSING PLAYERS
+
+These are players that occur in your rankings but weren't
+needed in the first mapping above.
+
+We create their canonical entries here.
+===========================================================
+*/
+
+Object.assign(players, {
+
+    jeremiyah_love: {
+        duracell: "Jeremiyah Love",
+        nffc: "Jeremiyah Love"
+    },
+
+    javonte_williams: {
+        duracell: "Javonte Williams",
+        nffc: "Javonte Williams"
+    },
+
+    josh_jacobs: {
+        duracell: "Josh Jacobs",
+        nffc: "Josh Jacobs"
+    },
+
+    luther_burden: {
+        duracell: "Luther Burden III",
+        nffc: "Luther Burden III"
+    },
+
+    quinshon_judkins: {
+        duracell: "Quinshon Judkins",
+        nffc: "Quinshon Judkins"
+    },
+
+    drake_maye: {
+        duracell: "Drake Maye",
+        nffc: "Drake Maye"
+    },
+
+    bucky_irving: {
+        duracell: "Bucky Irving",
+        nffc: "Bucky Irving"
+    },
+
+    david_montgomery: {
+        duracell: "David Montgomery",
+        nffc: "David Montgomery"
+    },
+
+    parker_washington: {
+        duracell: "Parker Washington",
+        nffc: "Parker Washington"
+    },
+
+    tucker_kraft: {
+        duracell: "Tucker Kraft",
+        nffc: "Tucker Kraft"
+    },
+
+    carnell_tate: {
+        duracell: "Carnell Tate",
+        nffc: "Carnell Tate"
+    },
+
+    rome_odunze: {
+        duracell: "Rome Odunze",
+        nffc: "Rome Odunze"
+    },
+
+    sam_laporta: {
+        duracell: "Sam LaPorta",
+        nffc: "Sam LaPorta"
+    },
+
+    kyle_pitts: {
+        duracell: "Kyle Pitts Sr.",
+        nffc: "Kyle Pitts Sr."
+    },
+
+    stefon_diggs: {
+        duracell: "Stefon Diggs",
+        nffc: "Stefon Diggs"
+    },
+
+    matthew_golden: {
+        duracell: "Matthew Golden",
+        nffc: "Matthew Golden"
+    },
+
+    xavier_worthy: {
+        duracell: "Xavier Worthy",
+        nffc: "Xavier Worthy"
+    },
+
+    kc_concepcion: {
+        duracell: "KC Concepcion",
+        nffc: "KC Concepcion"
+    },
+
+    brian_thomas: {
+        duracell: "Brian Thomas Jr.",
+        nffc: "Brian Thomas Jr."
+    },
+
+    tyler_shough: {
+        duracell: "Tyler Shough",
+        nffc: "Tyler Shough"
+    },
+
+    kyler_murray: {
+        duracell: "Kyler Murray",
+        nffc: "Kyler Murray"
+    },
+
+    romeo_doubs: {
+        duracell: "Romeo Doubs",
+        nffc: "Romeo Doubs"
+    },
+
+    isaiah_likely: {
+        duracell: "Isaiah Likely",
+        nffc: "Isaiah Likely"
+    },
+
+    kenyon_sadiq: {
+        duracell: "Kenyon Sadiq"
+    },
+
+    aaron_jones: {
+        duracell: "Aaron Jones",
+        nffc: "Aaron Jones Sr."
+    },
+
+    chris_rodriguez: {
+        duracell: "Chris Rodriguez Jr.",
+        nffc: "Chris Rodriguez Jr."
+    },
+
+    khalil_shakir: {
+        duracell: "Khalil Shakir",
+        nffc: "Khalil Shakir"
+    },
+
+    dallas_goedert: {
+        duracell: "Dallas Goedert",
+        nffc: "Dallas Goedert"
+    },
+
+    travis_kelce: {
+        duracell: "Travis Kelce",
+        nffc: "Travis Kelce"
+    },
+
+    jake_ferguson: {
+        duracell: "Jake Ferguson",
+        nffc: "Jake Ferguson"
+    },
+
+    baker_mayfield: {
+        duracell: "Baker Mayfield",
+        nffc: "Baker Mayfield"
+    },
+
+    jalen_coker: {
+        duracell: "Jalen Coker",
+        nffc: "Jalen Coker"
+    },
+
+    rashid_shaheed: {
+        duracell: "Rashid Shaheed",
+        nffc: "Rashid Shaheed"
+    },
+
+    mark_andrews: {
+        duracell: "Mark Andrews",
+        nffc: "Mark Andrews"
+    },
+
+    woody_marks: {
+        duracell: "Woody Marks",
+        nffc: "Woody Marks"
+    },
+
+    denzel_boston: {
+        duracell: "Denzel Boston",
+        nffc: "Denzel Boston"
+    },
+
+    zach_charbonnet: {
+        nffc: "Zach Charbonnet"
+    },
+
+    sam_darnold: {
+        nffc: "Sam Darnold"
+    },
+
+    deebo_samuel: {
+        duracell: "Deebo Samuel Sr.",
+        nffc: "Deebo Samuel Sr."
+    },
+
+    brenton_strange: {
+        nffc: "Brenton Strange"
+    },
+
+    oronde_gadsden: {
+        nffc: "Oronde Gadsden"
+    },
+
+    jalen_mcmillan: {
+        nffc: "Jalen McMillan"
+    },
+
+    dylan_sampson: {
+        nffc: "Dylan Sampson"
+    },
+
+    jacory_croskey_merritt: {
+        nffc: "Jacory Croskey-Merritt"
+    },
+
+    dalton_kincaid: {
+        nffc: "Dalton Kincaid"
+    },
+
+    jake_ferguson: {
+        nffc: "Jake Ferguson"
+    },
+
+    tyler_allgeier: {
+        nffc: "Tyler Allgeier"
+    },
+
+    tyrone_tracy: {
+        nffc: "Tyrone Tracy Jr."
+    },
+
+    jonah_coleman: {
+        nffc: "Jonah Coleman"
+    },
+
+    keaton_mitchell: {
+        nffc: "Keaton Mitchell"
+    },
+
+    malik_willis: {
+        duracell: "Malik Willis",
+        nffc: "Malik Willis"
+    },
+
+    jared_goff: {
+        my: "Goff",
+        duracell: "Jared Goff",
+        nffc: "Jared Goff"
+    },
+
+    caleb_williams: {
+        duracell: "Caleb Williams",
+        nffc: "Caleb Williams"
+    }
+});
+
+
+/*
+===========================================================
+DRAFT STATE
+===========================================================
+*/
+
+let draftedPlayers = new Set();
+
+
+/*
+===========================================================
+RENDER RANKINGS
+===========================================================
+*/
+
+function renderRanking(containerId, order, type, clickable = false) {
+
+    const container = document.getElementById(containerId);
+
+    container.innerHTML = "";
+
+    order.forEach((playerId, index) => {
+
+        const player = players[playerId];
+
+        // Skip players that don't have a name for this ranking
+        if (!player || !player[type]) {
+            return;
+        }
+
+        const row = document.createElement("div");
+
+        row.className = "player";
+
+        if (draftedPlayers.has(playerId)) {
+            row.classList.add("drafted");
+        }
+
+        row.dataset.playerId = playerId;
+
+        row.innerHTML = `
+            <div class="rank">${index + 1}</div>
+            <div class="name">${player[type]}</div>
+        `;
+
+        if (clickable) {
+
+            row.onclick = () => {
+
+                toggleDrafted(playerId);
+
+            };
+
+        }
+
+        container.appendChild(row);
+    });
+}
+
+
+/*
+===========================================================
+RENDER EVERYTHING
+===========================================================
+*/
+
+function renderAll() {
+
+    renderRanking(
+        "myRank",
+        myRankOrder,
+        "my",
+        true
+    );
+
+    renderRanking(
+        "duracell",
+        duracellOrder,
+        "duracell",
+        false
+    );
+
+    renderRanking(
+        "nffc",
+        nffcOrder,
+        "nffc",
+        false
+    );
+
+    document.getElementById("draftedCount").textContent =
+        draftedPlayers.size;
+
+    searchPlayers();
+}
+
+
+/*
+===========================================================
+TOGGLE PLAYER
+
+This is the key function.
+
+Clicking a player in MY RANK adds their canonical ID
+to draftedPlayers.
+
+Because every ranking uses the same ID, they all
+automatically get crossed out.
+===========================================================
+*/
+
+function toggleDrafted(playerId) {
+
+    if (draftedPlayers.has(playerId)) {
+
+        draftedPlayers.delete(playerId);
+
+    } else {
+
+        draftedPlayers.add(playerId);
+
+    }
+
+    renderAll();
+
+}
+
+
+/*
+===========================================================
+RESET
+===========================================================
+*/
+
+function resetDraft() {
+
+    if (
+        draftedPlayers.size > 0 &&
+        !confirm("Reset all drafted players?")
+    ) {
+        return;
+    }
+
+    draftedPlayers.clear();
+
+    renderAll();
+}
+
+
+/*
+===========================================================
+SEARCH
+===========================================================
+*/
+
+function searchPlayers() {
+
+    const searchTerm =
+        document
+            .getElementById("search")
+            .value
+            .toLowerCase()
+            .trim();
+
+    document
+        .querySelectorAll(".player")
+        .forEach(row => {
+
+            const playerId = row.dataset.playerId;
+
+            const player = players[playerId];
+
+            if (!player) {
+                return;
+            }
+
+            const searchableText =
+                JSON.stringify(player).toLowerCase();
+
+            if (
+                searchTerm === "" ||
+                searchableText.includes(searchTerm)
+            ) {
+
+                row.classList.remove("hidden");
+
+            } else {
+
+                row.classList.add("hidden");
+
+            }
+
+        });
+}
+
+
+/*
+===========================================================
+START APP
+===========================================================
+*/
+
+renderAll();
+
+</script>
+
+</body>
+</html>
